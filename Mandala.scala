@@ -34,8 +34,8 @@ object Mandala {
 
   trait State
   case object Empty extends State
-  case class Running(ops: Seq[Op]) extends State
-  case class Drawing(ops: Seq[Op]) extends State
+  case class Running(color: String, ops: Seq[Op]) extends State
+  case class Drawing(color: String, ops: Seq[Op]) extends State
 
   trait Signal
   case object Tick extends Signal
@@ -51,15 +51,16 @@ object Mandala {
     def x: Int
     def y: Int
   }
-  case class Start(x: Int, y: Int) extends Op
+  case class Start(color: String, x: Int, y: Int) extends Op
   case class Line(x: Int, y: Int) extends Op
   
   def drawit(ops: Seq[Op]): Unit = {
     Fiddle.draw.beginPath()
     ops foreach {
-      case Start(x, y) =>
+      case Start(color, x, y) =>
         Fiddle.draw.stroke()
         Fiddle.draw.beginPath()
+        Fiddle.draw.strokeStyle = color;
         Fiddle.draw.lineWidth = 5
         Fiddle.draw.moveTo(x, y)
         
@@ -69,18 +70,20 @@ object Mandala {
   }
   
   def signaled: PartialFunction[(State, Signal), State] = {
-    case (state, ColorChange(color)) =>
-      println(s"ColorChange($color)")
-      state
+    case (Running(_, ops), ColorChange(color)) =>
+      Running(color, ops)
 
-    case (Running(ops), MouseDown(x, y)) =>
-      Drawing(ops :+ Start(x - width/2, y - height/2))
+    case (Running(c, ops), MouseDown(x, y)) =>
+      Drawing(c, ops :+ Start(c, x - width/2, y - height/2))
+
+    case (Drawing(_, ops), ColorChange(color)) =>
+      Drawing(color, ops)
+
+    case (Drawing(c, ops), MouseMove(x, y)) =>
+      Drawing(c, ops :+ Line(x - width/2, y - height/2))
       
-    case (Drawing(ops), MouseMove(x, y)) =>
-      Drawing(ops :+ Line(x - width/2, y - height/2))
-      
-    case (Drawing(ops), MouseUp(_, _)) =>
-      Running(ops)
+    case (Drawing(c, ops), MouseUp(_, _)) =>
+      Running(c, ops)
       
     case (state, _) => state
   }
@@ -116,16 +119,16 @@ object Mandala {
   }
   
   def render: PartialFunction[State, Unit] = clear[State] andThen setup andThen {
-    case Running(ops) =>
+    case Running(_, ops) =>
       drawLines(ops)
 
-    case Drawing(ops) =>
+    case Drawing(_, ops) =>
       drawLines(ops)
 
     case _ =>
   } andThen teardown
 
-  val machine = new Machine[State, Signal](Running(Seq.empty), signaled, render)
+  val machine = new Machine[State, Signal](Running("black", Seq.empty), signaled, render)
 
   def withMouseEvent(fn: dom.MouseEvent => Unit) = { (evt: dom.Event) =>
     fn(evt.asInstanceOf[dom.MouseEvent])
