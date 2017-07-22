@@ -1,0 +1,29 @@
+<html>
+  <head>
+    <style>
+      body { margin: 0 }
+    </style>
+  </head>
+  <body>
+    <p>
+      <select id=color>
+        <option value=black>Black
+        <option value=red>Red
+        <option value=orange>Orange
+        <option value=yellow>Yellow
+        <option value=green>Green
+        <option value=blue>Blue
+        <option value=indigo>Indigo
+        <option value=violet>Violet
+      </select>
+    </p>
+    <p>
+      <canvas id="fiddle-canvas" width=800 height=600></canvas>
+    </p>
+    <script src="target/scala-2.12/mandala-jsdeps.min.js"></script>
+    <script src="target/scala-2.12/mandala-opt.js"></script>
+    <script>
+      mandala.main()
+    </script>
+  </body>
+</html>
