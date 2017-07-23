@@ -1,5 +1,12 @@
+import scala.scalajs.js.timers._
+import scalatags.JsDom.all._
+import org.scalajs.dom
+  
 import scala.scalajs.js.annotation._
 import rx._
+import rx.async._
+import rx.async.Platform._
+import scala.concurrent.duration._
 
 object Fiddle {
   import org.scalajs.dom
@@ -14,7 +21,7 @@ case class Machine[St, Sig](
   onRender: PartialFunction[St, Unit])(implicit val ctx: Ctx.Owner) {
 
   val state: Var[St] = Var(init)
-  val obs = state.trigger {
+  val obs = state.debounce((1000/30).millis).trigger {
     onRender(state.now)
   }
   
@@ -26,64 +33,52 @@ case class Machine[St, Sig](
 @JSExportTopLevel("mandala")
 object Mandala {
 
-  import scala.scalajs.js.timers._
-  import scalatags.JsDom.all._
-  import org.scalajs.dom
-  
   val NUM_SIDES = 7
 
   trait State
   case object Empty extends State
-  case class Running(color: String, ops: Seq[Op]) extends State
-  case class Drawing(color: String, ops: Seq[Op]) extends State
+  case class Running(color: String, inkLines: Seq[Line], colorLines: Seq[Line]) extends State
+  case class Drawing(color: String, line: Line, inkLines: Seq[Line], colorLines: Seq[Line]) extends State
 
   trait Signal
-  case object Tick extends Signal
   case class MouseMove(x: Int, y: Int) extends Signal
   case class MouseDown(x: Int, y: Int) extends Signal
   case class MouseUp(x: Int, y: Int) extends Signal
   case class ColorChange(color: String) extends Signal
-  
+
   val width = Fiddle.canvas.clientWidth
   val height = Fiddle.canvas.clientHeight
   
-  sealed trait Op {
-    def x: Int
-    def y: Int
-  }
-  case class Start(color: String, x: Int, y: Int) extends Op
-  case class Line(x: Int, y: Int) extends Op
-  
-  def drawit(ops: Seq[Op]): Unit = {
-    Fiddle.draw.beginPath()
-    ops foreach {
-      case Start(color, x, y) =>
-        Fiddle.draw.stroke()
-        Fiddle.draw.beginPath()
-        Fiddle.draw.strokeStyle = color;
-        Fiddle.draw.lineWidth = 5
-        Fiddle.draw.moveTo(x, y)
-        
-      case Line(x, y) => Fiddle.draw.lineTo(x, y)
+  case class Pt(x: Int, y: Int)
+  case class Line(color: String, start: Pt, segments: Seq[Pt]) {
+    def draw: Unit = {
+      Fiddle.draw.beginPath()
+      Fiddle.draw.lineCap = "round"
+      Fiddle.draw.lineJoin = "round"
+      Fiddle.draw.strokeStyle = color
+      Fiddle.draw.lineWidth = if (color == "black") 5 else 15
+
+      Fiddle.draw.moveTo(start.x, start.y)
+      segments.foreach(pt => Fiddle.draw.lineTo(pt.x, pt.y))
+      Fiddle.draw.stroke()
     }
-    Fiddle.draw.stroke()
   }
-  
+
   def signaled: PartialFunction[(State, Signal), State] = {
-    case (Running(_, ops), ColorChange(color)) =>
-      Running(color, ops)
+    case (Running(_, inks, lines), ColorChange(color)) =>
+      Running(color, inks, lines)
 
-    case (Running(c, ops), MouseDown(x, y)) =>
-      Drawing(c, ops :+ Start(c, x - width/2, y - height/2))
+    case (Running(c, inks, lines), MouseDown(x, y)) =>
+      Drawing(c, Line(c, Pt(x-width/2, y-height/2), Seq.empty), inks, lines)
 
-    case (Drawing(_, ops), ColorChange(color)) =>
-      Drawing(color, ops)
-
-    case (Drawing(c, ops), MouseMove(x, y)) =>
-      Drawing(c, ops :+ Line(x - width/2, y - height/2))
+    case (Drawing(c, line, inks, lines), MouseMove(x, y)) =>
+      Drawing(c, line.copy(segments = line.segments :+ Pt(x - width/2, y - height/2)), inks, lines)
       
-    case (Drawing(c, ops), MouseUp(_, _)) =>
-      Running(c, ops)
+    case (Drawing("black", line, inks, lines), e: MouseUp) =>
+      Running("black", inks :+ line, lines)
+
+    case (Drawing(color, line, inks, lines), e: MouseUp) =>
+      Running(color, inks, lines :+ line)
       
     case (state, _) => state
   }
@@ -108,27 +103,38 @@ object Mandala {
       Fiddle.draw.restore()
       state
   }
+
+  val ANGLE_DELTA = 2 * Math.PI / NUM_SIDES
+  val COUNT_LIST = Range(0, NUM_SIDES)
   
-  def drawLines(ops: Seq[Op]): Unit = {
+  def drawLines(lines: Seq[Line]): Unit = {
     val angle = 2 * Math.PI / NUM_SIDES
 
-    Range(0, NUM_SIDES).foreach { i =>
-      Fiddle.draw.rotate(angle)
-      drawit(ops)
-    }
+    COUNT_LIST.foreach(_ => {
+      Fiddle.draw.rotate(ANGLE_DELTA)
+      lines.foreach(_.draw)
+    })
   }
   
   def render: PartialFunction[State, Unit] = clear[State] andThen setup andThen {
-    case Running(_, ops) =>
-      drawLines(ops)
+    case Running(_, inks, lines) =>
+      drawLines(lines)
+      drawLines(inks)
 
-    case Drawing(_, ops) =>
-      drawLines(ops)
+    case Drawing("black", line, inks, lines) =>
+      drawLines(lines)
+      drawLines(inks)
+      drawLines(Seq(line))
+
+    case Drawing(_, line, inks, lines) =>
+      drawLines(lines)
+      drawLines(Seq(line))
+      drawLines(inks)
 
     case _ =>
   } andThen teardown
 
-  val machine = new Machine[State, Signal](Running("black", Seq.empty), signaled, render)
+  val machine = new Machine[State, Signal](Running("black", Seq.empty, Seq.empty), signaled, render)
 
   def withMouseEvent(fn: dom.MouseEvent => Unit) = { (evt: dom.Event) =>
     fn(evt.asInstanceOf[dom.MouseEvent])
@@ -136,28 +142,33 @@ object Mandala {
 
   @JSExport
   def main(args: Array[String]): Unit = {
-    setInterval(1000 / 30) {
-      machine.send(Tick)
-    }
 
     val canvasCoords = Fiddle.canvas.getBoundingClientRect()
     val cleft = canvasCoords.left.toInt
     val ctop  = canvasCoords.top.toInt
-    
+
     Fiddle.canvas.onmousemove = withMouseEvent { evt =>
+      println("onmousemove")
       machine.send(MouseMove(evt.clientX.toInt - cleft, evt.clientY.toInt - ctop))
     }
     
     Fiddle.canvas.onmousedown = withMouseEvent { evt =>
+      println("onmouseodwn")
       machine.send(MouseDown(evt.clientX.toInt - cleft, evt.clientY.toInt - ctop))
     }
     
     Fiddle.canvas.onmouseup = withMouseEvent { evt =>
+      println("onmouseup")
       machine.send(MouseUp(evt.clientX.toInt - cleft, evt.clientY.toInt - ctop))
     }
 
+    // org.scalajs.dom.ext.TouchEvents.HTMLDocumentToTouchEvents(dom.document).ontouchstart = { evt =>
+    //   println(">>>", evt)
+    // }
+
     val colorSelect = dom.document.getElementById("color").asInstanceOf[dom.html.Select]
     colorSelect.onchange = { evt =>
+      println("!!!")
       machine.send(ColorChange(colorSelect.value))
     }
   }
