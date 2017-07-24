@@ -35,20 +35,21 @@ object Mandala {
 
   val NUM_SIDES = 7
 
-  trait State
-  case object Empty extends State
-  case class Running(color: String, inkLines: Seq[Line], colorLines: Seq[Line]) extends State
-  case class Drawing(color: String, line: Line, inkLines: Seq[Line], colorLines: Seq[Line]) extends State
+  case class Settings(width: Int, height: Int, color: String)
+
+  trait State { val settings: Settings }
+  case object Empty extends State { val settings = Settings(0, 0, "black") }
+  case class Running(settings: Settings, inkLines: Seq[Line], colorLines: Seq[Line]) extends State
+  case class Drawing(settings: Settings, line: Line, inkLines: Seq[Line], colorLines: Seq[Line]) extends State
 
   trait Signal
+  case class Initialize(settings: Settings) extends Signal
   case class MouseMove(x: Int, y: Int) extends Signal
   case class MouseDown(x: Int, y: Int) extends Signal
   case class MouseUp(x: Int, y: Int) extends Signal
   case class ColorChange(color: String) extends Signal
+  case class Resize(width: Int, height: Int) extends Signal
 
-  val width = Fiddle.canvas.clientWidth
-  val height = Fiddle.canvas.clientHeight
-  
   case class Pt(x: Int, y: Int)
   case class Line(color: String, start: Pt, segments: Seq[Pt]) {
     def draw: Unit = {
@@ -65,43 +66,60 @@ object Mandala {
   }
 
   def signaled: PartialFunction[(State, Signal), State] = {
-    case (Running(_, inks, lines), ColorChange(color)) =>
-      Running(color, inks, lines)
+    case (Empty, Initialize(settings)) =>
+      Running(settings, Seq.empty, Seq.empty)
 
-    case (Running(c, inks, lines), MouseDown(x, y)) =>
-      Drawing(c, Line(c, Pt(x-width/2, y-height/2), Seq.empty), inks, lines)
+    case (state: Running, Resize(width, height)) =>
+      state.copy(settings = state.settings.copy(width = width, height = height))
 
-    case (Drawing(c, line, inks, lines), MouseMove(x, y)) =>
-      Drawing(c, line.copy(segments = line.segments :+ Pt(x - width/2, y - height/2)), inks, lines)
+    case (Running(Settings(width, height, _), inks, lines), ColorChange(color)) =>
+      Running(Settings(width, height, color), inks, lines)
+
+    case (Running(settings, inks, lines), MouseDown(x, y)) =>
+      Drawing(
+        settings,
+        Line(settings.color, Pt(x-settings.width/2, y-settings.height/2), Seq.empty),
+        inks,
+        lines)
+
+    case (state: Drawing, Resize(width, height)) =>
+      state.copy(settings = state.settings.copy(width = width, height = height))
+
+    case (Drawing(settings, line, inks, lines), MouseMove(x, y)) =>
+      Drawing(
+        settings,
+        line.copy(segments = line.segments :+ Pt(x - settings.width/2, y - settings.height/2)),
+        inks,
+        lines)
       
-    case (Drawing("black", line, inks, lines), e: MouseUp) =>
-      Running("black", inks :+ line, lines)
+    case (Drawing(settings, line, inks, lines), e: MouseUp) if settings.color == "black" =>
+      Running(settings, inks :+ line, lines)
 
-    case (Drawing(color, line, inks, lines), e: MouseUp) =>
-      Running(color, inks, lines :+ line)
+    case (Drawing(settings, line, inks, lines), e: MouseUp) =>
+      Running(settings, inks, lines :+ line)
       
     case (state, _) => state
   }
   
-  def clear[A]: PartialFunction[A, A] = {
+  def clear: PartialFunction[State,State] = {
     case state =>
       Fiddle.draw.beginPath()
-      Fiddle.draw.clearRect(0, 0, width, height)
+      Fiddle.draw.clearRect(0, 0, state.settings.width, state.settings.height)
       Fiddle.draw.fill()
       state
   }
   
-  def setup[A]: PartialFunction[A, A] = {
+  def setup: PartialFunction[State, State] = {
     case state =>
       Fiddle.draw.save()
-      Fiddle.draw.translate(width / 2, height / 2)
+      Fiddle.draw.translate(state.settings.width / 2, state.settings.height / 2)
       state
   }
   
   def teardown: PartialFunction[Unit,Unit] = {
-    case state =>
+    case s =>
       Fiddle.draw.restore()
-      state
+      s
   }
 
   val ANGLE_DELTA = 2 * Math.PI / NUM_SIDES
@@ -116,17 +134,17 @@ object Mandala {
     })
   }
   
-  def render: PartialFunction[State, Unit] = clear[State] andThen setup andThen {
+  def render: PartialFunction[State, Unit] = clear andThen setup andThen {
     case Running(_, inks, lines) =>
       drawLines(lines)
       drawLines(inks)
 
-    case Drawing("black", line, inks, lines) =>
+    case Drawing(settings, line, inks, lines) if settings.color == "black" =>
       drawLines(lines)
       drawLines(inks)
       drawLines(Seq(line))
 
-    case Drawing(_, line, inks, lines) =>
+    case Drawing(settings, line, inks, lines) =>
       drawLines(lines)
       drawLines(Seq(line))
       drawLines(inks)
@@ -134,42 +152,66 @@ object Mandala {
     case _ =>
   } andThen teardown
 
-  val machine = new Machine[State, Signal](Running("black", Seq.empty, Seq.empty), signaled, render)
+  val machine = new Machine[State, Signal](Empty, signaled, render)
 
-  def withMouseEvent(fn: dom.MouseEvent => Unit) = { (evt: dom.Event) =>
-    fn(evt.asInstanceOf[dom.MouseEvent])
+  def callback[A](fn: A => Unit) = { (evt: dom.Event) =>
+    fn(evt.asInstanceOf[A])
+  }
+
+  def updateCanvasInfo(canvas: dom.html.Canvas): Unit = {
+    val width = canvas.clientWidth
+    val height = canvas.clientHeight
+    canvas.width = width
+    canvas.height = height
   }
 
   @JSExport
   def main(args: Array[String]): Unit = {
 
-    val canvasCoords = Fiddle.canvas.getBoundingClientRect()
-    val cleft = canvasCoords.left.toInt
-    val ctop  = canvasCoords.top.toInt
-
-    Fiddle.canvas.onmousemove = withMouseEvent { evt =>
-      println("onmousemove")
-      machine.send(MouseMove(evt.clientX.toInt - cleft, evt.clientY.toInt - ctop))
-    }
+    Fiddle.canvas.addEventListener("mousemove", callback[dom.MouseEvent] { evt =>
+      val cc = Fiddle.canvas.getBoundingClientRect()
+      machine.send(MouseMove(evt.clientX.toInt - cc.left.toInt, evt.clientY.toInt - cc.top.toInt))
+    })
     
-    Fiddle.canvas.onmousedown = withMouseEvent { evt =>
-      println("onmouseodwn")
-      machine.send(MouseDown(evt.clientX.toInt - cleft, evt.clientY.toInt - ctop))
-    }
+    Fiddle.canvas.addEventListener("mousedown", callback[dom.MouseEvent] { evt =>
+      val cc = Fiddle.canvas.getBoundingClientRect()
+      machine.send(MouseDown(evt.clientX.toInt - cc.left.toInt, evt.clientY.toInt - cc.top.toInt))
+    })
     
-    Fiddle.canvas.onmouseup = withMouseEvent { evt =>
-      println("onmouseup")
-      machine.send(MouseUp(evt.clientX.toInt - cleft, evt.clientY.toInt - ctop))
-    }
+    Fiddle.canvas.addEventListener("mouseup", callback[dom.MouseEvent] { evt =>
+      val cc = Fiddle.canvas.getBoundingClientRect()
+      machine.send(MouseUp(evt.clientX.toInt - cc.left.toInt, evt.clientY.toInt - cc.top.toInt))
+    })
 
-    // org.scalajs.dom.ext.TouchEvents.HTMLDocumentToTouchEvents(dom.document).ontouchstart = { evt =>
-    //   println(">>>", evt)
-    // }
+    dom.window.addEventListener("resize", callback[dom.Event] { evt =>
+      updateCanvasInfo(Fiddle.canvas)
+      machine.send(Resize(Fiddle.canvas.width.toInt, Fiddle.canvas.height.toInt))
+    })
+
+    updateCanvasInfo(Fiddle.canvas)
+
+    machine.send(Initialize(Settings(Fiddle.canvas.width, Fiddle.canvas.height, "black")))
+
+    dom.document.addEventListener("touchstart", callback[dom.TouchEvent] { evt =>
+      val cc = Fiddle.canvas.getBoundingClientRect()
+      val t = evt.touches(0)
+      machine.send(MouseDown(t.clientX.toInt - cc.left.toInt, t.clientY.toInt - cc.top.toInt))
+    })
+
+    dom.document.addEventListener("touchmove", callback[dom.TouchEvent] { evt =>
+      val cc = Fiddle.canvas.getBoundingClientRect()
+      val t = evt.touches(0)
+      machine.send(MouseMove(t.clientX.toInt - cc.left.toInt, t.clientY.toInt - cc.top.toInt))
+    })
+
+    dom.document.addEventListener("touchend", callback[dom.TouchEvent] { evt =>
+      val cc = Fiddle.canvas.getBoundingClientRect()
+      machine.send(MouseUp(0, 0))
+    })
 
     val colorSelect = dom.document.getElementById("color").asInstanceOf[dom.html.Select]
-    colorSelect.onchange = { evt =>
-      println("!!!")
+    colorSelect.addEventListener("change", callback[dom.Event] { evt =>
       machine.send(ColorChange(colorSelect.value))
-    }
+    })
   }
 }
