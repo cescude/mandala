@@ -1,10 +1,12 @@
-= Mandala =
+Mandala
+=======
 
 Simple canvas app to scratch an itch.
 
 ![Example](example.png)
 
-== TODO ==
+TODO
+----
 
 - Larger pens on touchscreen
 - Change number of sides
