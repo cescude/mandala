@@ -46,7 +46,7 @@ object Mandala {
   case class Initialize(settings: Settings) extends Signal
   case class MouseMove(x: Int, y: Int) extends Signal
   case class MouseDown(x: Int, y: Int) extends Signal
-  case class MouseUp(x: Int, y: Int) extends Signal
+  case object MouseUp extends Signal
   case class ColorChange(color: String) extends Signal
   case class Resize(width: Int, height: Int) extends Signal
 
@@ -92,10 +92,10 @@ object Mandala {
         inks,
         lines)
       
-    case (Drawing(settings, line, inks, lines), e: MouseUp) if settings.color == "black" =>
+    case (Drawing(settings, line, inks, lines), MouseUp) if settings.color == "black" =>
       Running(settings, inks :+ line, lines)
 
-    case (Drawing(settings, line, inks, lines), e: MouseUp) =>
+    case (Drawing(settings, line, inks, lines), MouseUp) =>
       Running(settings, inks, lines :+ line)
       
     case (state, _) => state
@@ -165,53 +165,66 @@ object Mandala {
     canvas.height = height
   }
 
+  def pressEvent(machine: Machine[State, Signal], x: Double, y: Double): Unit = {
+    val cc = Fiddle.canvas.getBoundingClientRect()
+    machine.send(MouseDown(x.toInt - cc.left.toInt, y.toInt - cc.top.toInt))
+  }
+
+  def moveEvent(machine: Machine[State, Signal], x: Double, y: Double): Unit = {
+    val cc = Fiddle.canvas.getBoundingClientRect()
+    machine.send(MouseMove(x.toInt - cc.left.toInt, y.toInt - cc.top.toInt))
+  }
+
+  def releaseEvent(machine: Machine[State, Signal]): Unit = {
+    machine.send(MouseUp)
+  }
+
+  implicit class EventTargetExts(eventTarget: dom.raw.EventTarget) {
+    def on[A](event: String, callback: A => _): dom.raw.EventTarget = {
+      eventTarget.addEventListener(event, { e: dom.Event =>
+        callback(e.asInstanceOf[A])
+      })
+      eventTarget
+    }
+  }
+
   @JSExport
   def main(args: Array[String]): Unit = {
 
-    Fiddle.canvas.addEventListener("mousemove", callback[dom.MouseEvent] { evt =>
-      val cc = Fiddle.canvas.getBoundingClientRect()
-      machine.send(MouseMove(evt.clientX.toInt - cc.left.toInt, evt.clientY.toInt - cc.top.toInt))
-    })
-    
-    Fiddle.canvas.addEventListener("mousedown", callback[dom.MouseEvent] { evt =>
-      val cc = Fiddle.canvas.getBoundingClientRect()
-      machine.send(MouseDown(evt.clientX.toInt - cc.left.toInt, evt.clientY.toInt - cc.top.toInt))
-    })
-    
-    Fiddle.canvas.addEventListener("mouseup", callback[dom.MouseEvent] { evt =>
-      val cc = Fiddle.canvas.getBoundingClientRect()
-      machine.send(MouseUp(evt.clientX.toInt - cc.left.toInt, evt.clientY.toInt - cc.top.toInt))
-    })
+    Fiddle.canvas
+      .on("mousedown", { evt: dom.MouseEvent =>
+        pressEvent(machine, evt.clientX, evt.clientY)
+      })
+      .on("mousemove", { evt: dom.MouseEvent =>
+        moveEvent(machine, evt.clientX, evt.clientY)
+      })
+      .on("mouseup", { evt: dom.MouseEvent =>
+        releaseEvent(machine)
+      })
+      .on("touchstart", { evt: dom.TouchEvent =>
+        val touch = evt.touches(0)
+        pressEvent(machine, touch.clientX, touch.clientY)
+      })
+      .on("touchmove", { evt: dom.TouchEvent =>
+        val touch = evt.touches(0)
+        moveEvent(machine, touch.clientX, touch.clientY)
+      })
+      .on("touchend", { evt: dom.TouchEvent =>
+        releaseEvent(machine)
+      })
 
-    dom.window.addEventListener("resize", callback[dom.Event] { evt =>
+    dom.window.on("resize", { evt: dom.Event =>
       updateCanvasInfo(Fiddle.canvas)
       machine.send(Resize(Fiddle.canvas.width.toInt, Fiddle.canvas.height.toInt))
     })
 
     updateCanvasInfo(Fiddle.canvas)
 
-    machine.send(Initialize(Settings(Fiddle.canvas.width, Fiddle.canvas.height, "black")))
-
-    dom.document.addEventListener("touchstart", callback[dom.TouchEvent] { evt =>
-      val cc = Fiddle.canvas.getBoundingClientRect()
-      val t = evt.touches(0)
-      machine.send(MouseDown(t.clientX.toInt - cc.left.toInt, t.clientY.toInt - cc.top.toInt))
-    })
-
-    dom.document.addEventListener("touchmove", callback[dom.TouchEvent] { evt =>
-      val cc = Fiddle.canvas.getBoundingClientRect()
-      val t = evt.touches(0)
-      machine.send(MouseMove(t.clientX.toInt - cc.left.toInt, t.clientY.toInt - cc.top.toInt))
-    })
-
-    dom.document.addEventListener("touchend", callback[dom.TouchEvent] { evt =>
-      val cc = Fiddle.canvas.getBoundingClientRect()
-      machine.send(MouseUp(0, 0))
-    })
-
     val colorSelect = dom.document.getElementById("color").asInstanceOf[dom.html.Select]
-    colorSelect.addEventListener("change", callback[dom.Event] { evt =>
+    colorSelect.on("change", { evt: dom.Event =>
       machine.send(ColorChange(colorSelect.value))
     })
+
+    machine.send(Initialize(Settings(Fiddle.canvas.width, Fiddle.canvas.height, "black")))
   }
 }
