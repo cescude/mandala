@@ -15,10 +15,25 @@ object Fiddle {
   val draw = canvas.getContext("2d")
 }
 
+case object Machine {
+  def onSignal[St, Sig](handler: PartialFunction[(St, Sig), St]) = Machine1[St,Sig]((st,sig) => handler((st,sig)))
+  def onSignal[St, Sig](handler: (St, Sig) => St)                = Machine1[St,Sig](handler)
+
+  case class Machine1[St, Sig](onSignal: (St, Sig) => St) {
+    def onRender(handler: PartialFunction[St, _]) = Machine2[St,Sig](onSignal, st => handler(st))
+    def onRender(handler: St => _)                = Machine2[St,Sig](onSignal, handler)
+  }
+
+  case class Machine2[St, Sig](onSignal: (St, Sig) => St, onRender: St => _) {
+    def init(initialState: St)(implicit ctx: Ctx.Owner) =
+      Machine(initialState, onSignal, onRender)(ctx)
+  }
+}
+
 case class Machine[St, Sig](
   init: St,
-  onSignal: PartialFunction[(St, Sig), St],
-  onRender: PartialFunction[St, Unit])(implicit val ctx: Ctx.Owner) {
+  onSignal: (St, Sig) => St,
+  onRender: St => _)(implicit val ctx: Ctx.Owner) {
 
   val state: Var[St] = Var(init)
   val obs = state.debounce((1000/30).millis).trigger {
@@ -33,7 +48,7 @@ case class Machine[St, Sig](
 @JSExportTopLevel("mandala")
 object Mandala {
 
-  val NUM_SIDES = 7
+  val NUM_SIDES = 6
 
   case class Settings(width: Int, height: Int, color: String)
 
@@ -101,27 +116,6 @@ object Mandala {
     case (state, _) => state
   }
   
-  def clear: PartialFunction[State,State] = {
-    case state =>
-      Fiddle.draw.beginPath()
-      Fiddle.draw.clearRect(0, 0, state.settings.width, state.settings.height)
-      Fiddle.draw.fill()
-      state
-  }
-  
-  def setup: PartialFunction[State, State] = {
-    case state =>
-      Fiddle.draw.save()
-      Fiddle.draw.translate(state.settings.width / 2, state.settings.height / 2)
-      state
-  }
-  
-  def teardown: PartialFunction[Unit,Unit] = {
-    case s =>
-      Fiddle.draw.restore()
-      s
-  }
-
   val ANGLE_DELTA = 2 * Math.PI / NUM_SIDES
   val COUNT_LIST = Range(0, NUM_SIDES)
   
@@ -134,29 +128,40 @@ object Mandala {
     })
   }
   
-  def render: PartialFunction[State, Unit] = clear andThen setup andThen {
-    case Running(_, inks, lines) =>
-      drawLines(lines)
-      drawLines(inks)
+  def render(state: State): Unit = {
+    Fiddle.draw.beginPath()
+    Fiddle.draw.clearRect(0, 0, state.settings.width, state.settings.height)
+    Fiddle.draw.fill()
 
-    case Drawing(settings, line, inks, lines) if settings.color == "black" =>
-      drawLines(lines)
-      drawLines(inks)
-      drawLines(Seq(line))
+    Fiddle.draw.save()
+    Fiddle.draw.translate(state.settings.width / 2, state.settings.height / 2)
 
-    case Drawing(settings, line, inks, lines) =>
-      drawLines(lines)
-      drawLines(Seq(line))
-      drawLines(inks)
+    state match {
+      case Running(_, inks, lines) =>
+        drawLines(lines)
+        drawLines(inks)
 
-    case _ =>
-  } andThen teardown
+      case Drawing(settings, line, inks, lines) if settings.color == "black" =>
+        drawLines(lines)
+        drawLines(inks)
+        drawLines(Seq(line))
 
-  val machine = new Machine[State, Signal](Empty, signaled, render)
+      case Drawing(settings, line, inks, lines) =>
+        drawLines(lines)
+        drawLines(Seq(line))
+        drawLines(inks)
 
-  def callback[A](fn: A => Unit) = { (evt: dom.Event) =>
-    fn(evt.asInstanceOf[A])
+      case _ =>
+    }
+
+    Fiddle.draw.restore()
+
   }
+
+  val machine = Machine
+    .onSignal(signaled)
+    .onRender(render _)
+    .init(Empty)
 
   def updateCanvasInfo(canvas: dom.html.Canvas): Unit = {
     val width = canvas.clientWidth
