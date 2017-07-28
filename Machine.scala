@@ -8,24 +8,25 @@ object Machine {
   def onSignal[St, Sig](handler: (St, Sig) => St)                = Machine1[St,Sig](handler)
 
   case class Machine1[St, Sig](onSignal: (St, Sig) => St) {
-    def onRender(handler: PartialFunction[St, _]) = Machine2[St,Sig](onSignal, st => handler(st))
-    def onRender(handler: St => _)                = Machine2[St,Sig](onSignal, handler)
+    def onRender[World](handler: PartialFunction[(World, St), _]) = Machine2[St,Sig,World](onSignal, (world: World, st: St) => handler((world,st)))
+    def onRender[World](handler: (World, St) => _)                = Machine2[St,Sig,World](onSignal, handler)
   }
 
-  case class Machine2[St, Sig](onSignal: (St, Sig) => St, onRender: St => _) {
-    def init(initialState: St)(implicit ctx: Ctx.Owner) =
-      Machine(initialState, onSignal, onRender)(ctx)
+  case class Machine2[St, Sig, World](onSignal: (St, Sig) => St, onRender: (World, St) => _) {
+    def init(world: World, initialState: St)(implicit ctx: Ctx.Owner) =
+      Machine(world, initialState, onSignal, onRender)(ctx)
   }
 }
 
-case class Machine[St, Sig](
+case class Machine[St, Sig, World](
+  world: World,
   init: St,
   onSignal: (St, Sig) => St,
-  onRender: St => _)(implicit val ctx: Ctx.Owner) {
+  onRender: (World, St) => _)(implicit val ctx: Ctx.Owner) {
 
   val state: Var[St] = Var(init)
   val obs = state.debounce((1000/30).millis).trigger {
-    onRender(state.now)
+    onRender(world, state.now)
   }
   
   def send(signal: Sig): Unit = {

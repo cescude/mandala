@@ -1,9 +1,9 @@
-import scala.scalajs.js.timers._
 import scalatags.JsDom.all._
 import org.scalajs.dom
 import scala.scalajs.js.annotation._
 
-@JSExportTopLevel("mandala")
+// Defines the states, signals, and logic behind the mandala machine
+
 object Mandala {
 
   case class Settings(width: Int, height: Int, color: String, sides: Int)
@@ -23,27 +23,7 @@ object Mandala {
   case object Clear                                    extends Signal
 
   case class Pt(x: Int, y: Int)
-  case class Line(sides: Int, size: Int, color: String, start: Pt, segments: Seq[Pt]) {
-    def draw(): Unit = {
-      Fiddle.draw.lineCap = "round"
-      Fiddle.draw.lineJoin = "round"
-      Fiddle.draw.strokeStyle = color
-      Fiddle.draw.lineWidth = size
-
-      val ANGLE_DELTA = 2 * Math.PI / sides
-
-      Range(0, sides) foreach { _ =>
-        Fiddle.draw.rotate(ANGLE_DELTA)
-
-        Fiddle.draw.beginPath()
-
-        Fiddle.draw.moveTo(start.x, start.y)
-        segments.foreach(pt => Fiddle.draw.lineTo(pt.x, pt.y))
-
-        Fiddle.draw.stroke()
-      }
-    }
-  }
+  case class Line(sides: Int, size: Int, color: String, start: Pt, segments: Seq[Pt])
 
   def signaled: PartialFunction[(State, Signal), State] = {
     case (state, Initialize(settings)) =>
@@ -92,140 +72,53 @@ object Mandala {
     case (state, _) => state
   }
   
-  def render(state: State): Unit = {
-    Fiddle.draw.beginPath()
-    Fiddle.draw.clearRect(0, 0, state.settings.width, state.settings.height)
-    Fiddle.draw.fill()
+  def drawLine(draw: dom.CanvasRenderingContext2D, line: Line): Unit = {
+    draw.lineCap = "round"
+    draw.lineJoin = "round"
+    draw.strokeStyle = line.color
+    draw.lineWidth = line.size
 
-    Fiddle.draw.save()
-    Fiddle.draw.translate(state.settings.width / 2, state.settings.height / 2)
+    val ANGLE_DELTA = 2 * Math.PI / line.sides
+
+    Range(0, line.sides) foreach { _ =>
+      draw.rotate(ANGLE_DELTA)
+
+      draw.beginPath()
+
+      draw.moveTo(line.start.x, line.start.y)
+      line.segments.foreach(pt => draw.lineTo(pt.x, pt.y))
+
+      draw.stroke()
+    }
+  }
+
+  def render(draw: dom.CanvasRenderingContext2D, state: State): Unit = {
+    draw.beginPath()
+    draw.clearRect(0, 0, state.settings.width, state.settings.height)
+    draw.fill()
+
+    draw.save()
+    draw.translate(state.settings.width / 2, state.settings.height / 2)
 
     state match {
       case Paused(settings, inks, lines) =>
-        lines.foreach(_.draw)
-        inks.foreach(_.draw)
+        lines.foreach(drawLine(draw, _))
+        inks.foreach(drawLine(draw, _))
 
       case Drawing(settings, line, inks, lines) if settings.color == "black" =>
-        lines.foreach(_.draw)
-        inks.foreach(_.draw)
-        line.draw()
+        lines.foreach(drawLine(draw, _))
+        inks.foreach(drawLine(draw, _))
+        drawLine(draw, line)
 
       case Drawing(settings, line, inks, lines) =>
-        lines.foreach(_.draw)
-        line.draw()
-        inks.foreach(_.draw)
+        lines.foreach(drawLine(draw, _))
+        drawLine(draw, line)
+        inks.foreach(drawLine(draw, _))
 
       case _ =>
     }
 
-    Fiddle.draw.restore()
+    draw.restore()
 
-  }
-
-  val machine = Machine
-    .onSignal(signaled)
-    .onRender(render _)
-    .init(Paused(
-      Settings(Fiddle.canvas.width, Fiddle.canvas.height, "black", 7),
-      Seq.empty,
-      Seq.empty))
-
-  def updateCanvasInfo(canvas: dom.html.Canvas): Unit = {
-    val width = canvas.clientWidth
-    val height = canvas.clientHeight
-    canvas.width = width
-    canvas.height = height
-  }
-
-  def pressEvent(touch: Boolean, x: Double, y: Double): Unit = {
-    val cc = Fiddle.canvas.getBoundingClientRect()
-    machine.send(MouseDown(touch, x.toInt - cc.left.toInt, y.toInt - cc.top.toInt))
-  }
-
-  def moveEvent(x: Double, y: Double): Unit = {
-    val cc = Fiddle.canvas.getBoundingClientRect()
-    machine.send(MouseMove(x.toInt - cc.left.toInt, y.toInt - cc.top.toInt))
-  }
-
-  def releaseEvent(): Unit = {
-    machine.send(MouseUp)
-  }
-
-  implicit class EventTargetExts(eventTarget: dom.raw.EventTarget) {
-    def on[A](event: String, callback: A => _): dom.raw.EventTarget = {
-      eventTarget.addEventListener(event, { e: dom.Event =>
-        callback(e.asInstanceOf[A])
-      })
-      eventTarget
-    }
-  }
-
-  @JSExport
-  def main(args: Array[String]): Unit = {
-
-    Fiddle.canvas
-      .on("mousedown", { evt: dom.MouseEvent =>
-        pressEvent(false, evt.clientX, evt.clientY)
-      })
-      .on("mousemove", { evt: dom.MouseEvent =>
-        moveEvent(evt.clientX, evt.clientY)
-      })
-      .on("mouseup", { evt: dom.MouseEvent =>
-        releaseEvent()
-      })
-      .on("touchstart", { evt: dom.TouchEvent =>
-        val touch = evt.touches(0)
-        pressEvent(true, touch.clientX, touch.clientY)
-      })
-      .on("touchmove", { evt: dom.TouchEvent =>
-        val touch = evt.touches(0)
-        moveEvent(touch.clientX, touch.clientY)
-      })
-      .on("touchend", { evt: dom.TouchEvent =>
-        releaseEvent()
-      })
-
-    dom.window.on("resize", { evt: dom.Event =>
-      updateCanvasInfo(Fiddle.canvas)
-      machine.send(Resize(Fiddle.canvas.width.toInt, Fiddle.canvas.height.toInt))
-    })
-
-    updateCanvasInfo(Fiddle.canvas)
-
-    val controls = dom.document.getElementById("controls")
-    import scalatags.JsDom._
-
-    val clearButton = button(width := "64px", height := "64px", "Clear").render
-    clearButton.on("click", { evt: dom.Event => machine.send(Clear) })
-    controls.appendChild(clearButton)
-
-    val shapeSelect = select(height := "64px").render
-    shapeSelect.on("change", { evt: dom.Event =>
-      machine.send(ShapeChange(shapeSelect.value.toInt))
-    })
-    controls.appendChild(shapeSelect)
-
-    "Digon Triangle Square Pentagon Hexagon Heptagon Octagon Nonagon Decagon Hendecagon Dodecagon"
-      .split(" ").zipWithIndex
-      .map({ case (name, index) => option(value := s"${index+2}", name) })
-      .map(_.render)
-      .map(shapeSelect.appendChild(_))
-
-    shapeSelect.value = "7"
-
-    val black = Seq("black")
-    val hsls = Range(0, 360, 360/8).map(hue => s"hsl($hue, 100%, 70%)")
-
-    (black ++ hsls)
-      .map({ colorName =>
-        val btn = button("//",
-          backgroundColor := colorName, color := colorName,
-          width := "64px", height := "64px").render
-        btn.on("click", { evt : dom.Event => machine.send(ColorChange(colorName)) })
-        btn
-      })
-      .foreach(controls.appendChild(_))
-
-    machine.send(Initialize(Settings(Fiddle.canvas.width, Fiddle.canvas.height, "black", 7)))
   }
 }
