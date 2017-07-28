@@ -23,7 +23,7 @@ object Mandala {
   case object Clear                                    extends Signal
 
   case class Pt(x: Int, y: Int)
-  case class Line(sides: Int, size: Int, color: String, start: Pt, segments: Seq[Pt])
+  case class Line(sides: Int, size: Int, color: String, segments: Seq[Pt])
 
   def signaled: PartialFunction[(State, Signal), State] = {
     case (state, Initialize(settings)) =>
@@ -48,8 +48,7 @@ object Mandala {
           settings.sides,
           (if (touch) 3 else 1) * (if (settings.color == "black") 5 else 15),
           settings.color,
-          Pt(x-settings.width/2, y-settings.height/2),
-          Seq.empty),
+          Seq(Pt(x-settings.width/2, y-settings.height/2))),
         inks,
         lines)
 
@@ -85,7 +84,7 @@ object Mandala {
 
       draw.beginPath()
 
-      draw.moveTo(line.start.x, line.start.y)
+      draw.moveTo(line.segments.head.x, line.segments.head.y)
       line.segments.foreach(pt => draw.lineTo(pt.x, pt.y))
 
       draw.stroke()
