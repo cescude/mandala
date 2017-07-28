@@ -1,13 +1,12 @@
 Mandala
 =======
 
-Simple canvas app to scratch an itch.
+Simple canvas app to scratch an itch.  See https://cescude.github.io/mandala to
+mess around with it.
 
 ![Example](example.png)
 
 TODO
 ----
 
-- Larger pens on touchscreen
-- Change number of sides
 - General cleanup
