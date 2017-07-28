@@ -11,7 +11,8 @@ import scala.concurrent.duration._
 object Fiddle {
   import org.scalajs.dom
 
-  val canvas = dom.document.getElementById("fiddle-canvas").asInstanceOf[dom.html.Canvas]
+  val canvas = dom.document.getElementById("fiddle-canvas")
+    .asInstanceOf[dom.html.Canvas]
   val draw = canvas.getContext("2d")
 }
 
@@ -48,31 +49,34 @@ case class Machine[St, Sig](
 @JSExportTopLevel("mandala")
 object Mandala {
 
-  val NUM_SIDES = 6
-
-  case class Settings(width: Int, height: Int, color: String)
+  case class Settings(width: Int, height: Int, color: String, sides: Int) {
+    val ANGLE_DELTA = 2 * Math.PI / sides
+    val COUNT_LIST = Range(0, sides)
+  }
 
   trait State { val settings: Settings }
-  case object Empty extends State { val settings = Settings(0, 0, "black") }
+  case object Empty extends State { val settings = Settings(0, 0, "black", 3) }
   case class Running(settings: Settings, inkLines: Seq[Line], colorLines: Seq[Line]) extends State
   case class Drawing(settings: Settings, line: Line, inkLines: Seq[Line], colorLines: Seq[Line]) extends State
 
   trait Signal
-  case class Initialize(settings: Settings) extends Signal
-  case class MouseMove(x: Int, y: Int) extends Signal
-  case class MouseDown(x: Int, y: Int) extends Signal
-  case object MouseUp extends Signal
-  case class ColorChange(color: String) extends Signal
-  case class Resize(width: Int, height: Int) extends Signal
+  case class Initialize(settings: Settings)            extends Signal
+  case class MouseDown(touch: Boolean, x: Int, y: Int) extends Signal
+  case class MouseMove(x: Int, y: Int)                 extends Signal
+  case object MouseUp                                  extends Signal
+  case class ColorChange(color: String)                extends Signal
+  case class ShapeChange(shape: Int)                   extends Signal
+  case class Resize(width: Int, height: Int)           extends Signal
+  case object Clear                                    extends Signal
 
   case class Pt(x: Int, y: Int)
-  case class Line(color: String, start: Pt, segments: Seq[Pt]) {
+  case class Line(size: Int, color: String, start: Pt, segments: Seq[Pt]) {
     def draw: Unit = {
       Fiddle.draw.beginPath()
       Fiddle.draw.lineCap = "round"
       Fiddle.draw.lineJoin = "round"
       Fiddle.draw.strokeStyle = color
-      Fiddle.draw.lineWidth = if (color == "black") 5 else 15
+      Fiddle.draw.lineWidth = size
 
       Fiddle.draw.moveTo(start.x, start.y)
       segments.foreach(pt => Fiddle.draw.lineTo(pt.x, pt.y))
@@ -84,16 +88,26 @@ object Mandala {
     case (Empty, Initialize(settings)) =>
       Running(settings, Seq.empty, Seq.empty)
 
+    case (Running(settings, _, _), Clear) =>
+      Running(settings, Seq.empty, Seq.empty)
+
     case (state: Running, Resize(width, height)) =>
       state.copy(settings = state.settings.copy(width = width, height = height))
 
-    case (Running(Settings(width, height, _), inks, lines), ColorChange(color)) =>
-      Running(Settings(width, height, color), inks, lines)
+    case (Running(Settings(width, height, _, sides), inks, lines), ColorChange(color)) =>
+      Running(Settings(width, height, color, sides), inks, lines)
 
-    case (Running(settings, inks, lines), MouseDown(x, y)) =>
+    case (Running(Settings(width, height, color, _), inks, lines), ShapeChange(sides)) =>
+      Running(Settings(width, height, color, sides), inks, lines)
+
+    case (Running(settings, inks, lines), MouseDown(touch, x, y)) =>
       Drawing(
         settings,
-        Line(settings.color, Pt(x-settings.width/2, y-settings.height/2), Seq.empty),
+        Line(
+          (if (touch) 3 else 1) * (if (settings.color == "black") 5 else 15),
+          settings.color,
+          Pt(x-settings.width/2, y-settings.height/2),
+          Seq.empty),
         inks,
         lines)
 
@@ -116,14 +130,9 @@ object Mandala {
     case (state, _) => state
   }
   
-  val ANGLE_DELTA = 2 * Math.PI / NUM_SIDES
-  val COUNT_LIST = Range(0, NUM_SIDES)
-  
-  def drawLines(lines: Seq[Line]): Unit = {
-    val angle = 2 * Math.PI / NUM_SIDES
-
-    COUNT_LIST.foreach(_ => {
-      Fiddle.draw.rotate(ANGLE_DELTA)
+  def drawLines(settings: Settings, lines: Seq[Line]): Unit = {
+    settings.COUNT_LIST.foreach(_ => {
+      Fiddle.draw.rotate(settings.ANGLE_DELTA)
       lines.foreach(_.draw)
     })
   }
@@ -137,19 +146,19 @@ object Mandala {
     Fiddle.draw.translate(state.settings.width / 2, state.settings.height / 2)
 
     state match {
-      case Running(_, inks, lines) =>
-        drawLines(lines)
-        drawLines(inks)
+      case Running(settings, inks, lines) =>
+        drawLines(settings, lines)
+        drawLines(settings, inks)
 
       case Drawing(settings, line, inks, lines) if settings.color == "black" =>
-        drawLines(lines)
-        drawLines(inks)
-        drawLines(Seq(line))
+        drawLines(settings, lines)
+        drawLines(settings, inks)
+        drawLines(settings, Seq(line))
 
       case Drawing(settings, line, inks, lines) =>
-        drawLines(lines)
-        drawLines(Seq(line))
-        drawLines(inks)
+        drawLines(settings, lines)
+        drawLines(settings, Seq(line))
+        drawLines(settings, inks)
 
       case _ =>
     }
@@ -170,17 +179,17 @@ object Mandala {
     canvas.height = height
   }
 
-  def pressEvent(machine: Machine[State, Signal], x: Double, y: Double): Unit = {
+  def pressEvent(touch: Boolean, x: Double, y: Double): Unit = {
     val cc = Fiddle.canvas.getBoundingClientRect()
-    machine.send(MouseDown(x.toInt - cc.left.toInt, y.toInt - cc.top.toInt))
+    machine.send(MouseDown(touch, x.toInt - cc.left.toInt, y.toInt - cc.top.toInt))
   }
 
-  def moveEvent(machine: Machine[State, Signal], x: Double, y: Double): Unit = {
+  def moveEvent(x: Double, y: Double): Unit = {
     val cc = Fiddle.canvas.getBoundingClientRect()
     machine.send(MouseMove(x.toInt - cc.left.toInt, y.toInt - cc.top.toInt))
   }
 
-  def releaseEvent(machine: Machine[State, Signal]): Unit = {
+  def releaseEvent(): Unit = {
     machine.send(MouseUp)
   }
 
@@ -198,24 +207,24 @@ object Mandala {
 
     Fiddle.canvas
       .on("mousedown", { evt: dom.MouseEvent =>
-        pressEvent(machine, evt.clientX, evt.clientY)
+        pressEvent(false, evt.clientX, evt.clientY)
       })
       .on("mousemove", { evt: dom.MouseEvent =>
-        moveEvent(machine, evt.clientX, evt.clientY)
+        moveEvent(evt.clientX, evt.clientY)
       })
       .on("mouseup", { evt: dom.MouseEvent =>
-        releaseEvent(machine)
+        releaseEvent()
       })
       .on("touchstart", { evt: dom.TouchEvent =>
         val touch = evt.touches(0)
-        pressEvent(machine, touch.clientX, touch.clientY)
+        pressEvent(true, touch.clientX, touch.clientY)
       })
       .on("touchmove", { evt: dom.TouchEvent =>
         val touch = evt.touches(0)
-        moveEvent(machine, touch.clientX, touch.clientY)
+        moveEvent(touch.clientX, touch.clientY)
       })
       .on("touchend", { evt: dom.TouchEvent =>
-        releaseEvent(machine)
+        releaseEvent()
       })
 
     dom.window.on("resize", { evt: dom.Event =>
@@ -230,6 +239,16 @@ object Mandala {
       machine.send(ColorChange(colorSelect.value))
     })
 
-    machine.send(Initialize(Settings(Fiddle.canvas.width, Fiddle.canvas.height, "black")))
+    val shapeSelect = dom.document.getElementById("shape").asInstanceOf[dom.html.Select]
+    shapeSelect.on("change", { evt: dom.Event =>
+      machine.send(ShapeChange(shapeSelect.value.toInt))
+    })
+
+    dom.document.getElementById("clear").asInstanceOf[dom.html.Button]
+      .on("click", { evt: dom.Event =>
+        machine.send(Clear)
+      })
+
+    machine.send(Initialize(Settings(Fiddle.canvas.width, Fiddle.canvas.height, "black", 5)))
   }
 }
