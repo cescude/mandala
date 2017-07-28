@@ -192,20 +192,39 @@ object Mandala {
 
     updateCanvasInfo(Fiddle.canvas)
 
-    val colorSelect = dom.document.getElementById("color").asInstanceOf[dom.html.Select]
-    colorSelect.on("change", { evt: dom.Event =>
-      machine.send(ColorChange(colorSelect.value))
-    })
+    val controls = dom.document.getElementById("controls")
+    import scalatags.JsDom._
 
-    val shapeSelect = dom.document.getElementById("shape").asInstanceOf[dom.html.Select]
+    val clearButton = button(width := "64px", height := "64px", "Clear").render
+    clearButton.on("click", { evt: dom.Event => machine.send(Clear) })
+    controls.appendChild(clearButton)
+
+    val shapeSelect = select(height := "64px").render
     shapeSelect.on("change", { evt: dom.Event =>
       machine.send(ShapeChange(shapeSelect.value.toInt))
     })
+    controls.appendChild(shapeSelect)
 
-    dom.document.getElementById("clear").asInstanceOf[dom.html.Button]
-      .on("click", { evt: dom.Event =>
-        machine.send(Clear)
+    "Digon Triangle Square Pentagon Hexagon Heptagon Octagon Nonagon Decagon Hendecagon Dodecagon"
+      .split(" ").zipWithIndex
+      .map({ case (name, index) => option(value := s"${index+2}", name) })
+      .map(_.render)
+      .map(shapeSelect.appendChild(_))
+
+    shapeSelect.value = "7"
+
+    val black = Seq("black")
+    val hsls = Range(0, 360, 360/8).map(hue => s"hsl($hue, 100%, 70%)")
+
+    (black ++ hsls)
+      .map({ colorName =>
+        val btn = button("//",
+          backgroundColor := colorName, color := colorName,
+          width := "64px", height := "64px").render
+        btn.on("click", { evt : dom.Event => machine.send(ColorChange(colorName)) })
+        btn
       })
+      .foreach(controls.appendChild(_))
 
     machine.send(Initialize(Settings(Fiddle.canvas.width, Fiddle.canvas.height, "black", 7)))
   }
