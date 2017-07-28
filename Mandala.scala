@@ -169,7 +169,7 @@ object Mandala {
     .onSignal(signaled)
     .onRender(render _)
     .init(Paused(
-      Settings(Fiddle.canvas.width, Fiddle.canvas.height, "black", 5),
+      Settings(Fiddle.canvas.width, Fiddle.canvas.height, "black", 7),
       Seq.empty,
       Seq.empty))
 
@@ -250,6 +250,6 @@ object Mandala {
         machine.send(Clear)
       })
 
-    machine.send(Initialize(Settings(Fiddle.canvas.width, Fiddle.canvas.height, "black", 5)))
+    machine.send(Initialize(Settings(Fiddle.canvas.width, Fiddle.canvas.height, "black", 7)))
   }
 }
