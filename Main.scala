@@ -40,12 +40,16 @@ object Main {
   }
 
   implicit class EventTargetExts(eventTarget: dom.raw.EventTarget) {
-    def on[A](event: String, callback: A => _): dom.raw.EventTarget = {
+    def on[A](event: String, preventDefault: Boolean, callback: A => _): dom.raw.EventTarget = {
       eventTarget.addEventListener(event, { e: dom.Event =>
         callback(e.asInstanceOf[A])
+        if (preventDefault) e.preventDefault()
       })
       eventTarget
     }
+
+    def on[A](event: String, callback: A => _): dom.raw.EventTarget =
+      on(event, false, callback)
   }
 
   @JSExport
@@ -61,16 +65,15 @@ object Main {
       .on("mouseup", { evt: dom.MouseEvent =>
         releaseEvent()
       })
-      .on("touchstart", { evt: dom.TouchEvent =>
+      .on("touchstart", true, { evt: dom.TouchEvent =>
         val touch = evt.touches(0)
         pressEvent(true, touch.clientX, touch.clientY)
       })
-      .on("touchmove", { evt: dom.TouchEvent =>
+      .on("touchmove", true, { evt: dom.TouchEvent =>
         val touch = evt.touches(0)
         moveEvent(touch.clientX, touch.clientY)
-        evt.preventDefault()
       })
-      .on("touchend", { evt: dom.TouchEvent =>
+      .on("touchend", true, { evt: dom.TouchEvent =>
         releaseEvent()
       })
 
@@ -84,11 +87,11 @@ object Main {
     val controls = dom.document.getElementById("controls")
     import scalatags.JsDom._
 
-    val clearButton = button(height := "48px", "Clear").render
+    val clearButton = button(i(cls := "fa fa-trash-o")).render
     clearButton.on("click", { evt: dom.Event => machine.send(Clear) })
     controls.appendChild(clearButton)
 
-    val shapeSelect = select(height := "48px").render
+    val shapeSelect = select().render
     shapeSelect.on("change", { evt: dom.Event =>
       machine.send(ShapeChange(shapeSelect.value.toInt))
     })
@@ -103,13 +106,11 @@ object Main {
     shapeSelect.value = "7"
 
     val black = Seq("black")
-    val hsls = Range(0, 360, 360/16).map(hue => s"hsl($hue, 100%, 70%)").take(14)
+    val hsls = Range(0, 360, 360/16).map(hue => s"hsl($hue, 100%, 50%)").take(14)
 
     (black ++ hsls)
       .map({ colorName =>
-        val btn = button("//",
-          backgroundColor := colorName, color := colorName,
-          width := "48px", height := "48px").render
+        val btn = button(i(cls := "fa fa-square fa-2x", color := colorName)).render
         btn.on("click", { evt : dom.Event => machine.send(ColorChange(colorName)) })
         btn
       })
