@@ -99,6 +99,11 @@ object Mandala {
     draw.save()
     draw.translate(state.settings.width / 2, state.settings.height / 2)
 
+    draw.beginPath()
+    draw.fillStyle = "lightgray"
+    draw.arc(0, 0, 3, 0, 2 * Math.PI, false)
+    draw.fill()
+
     state match {
       case Paused(settings, inks, lines) =>
         lines.foreach(drawLine(draw, _))
