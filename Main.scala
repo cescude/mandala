@@ -84,7 +84,7 @@ object Main {
     val controls = dom.document.getElementById("controls")
     import scalatags.JsDom._
 
-    val clearButton = button(width := "48px", height := "48px", "Clear").render
+    val clearButton = button(height := "48px", "Clear").render
     clearButton.on("click", { evt: dom.Event => machine.send(Clear) })
     controls.appendChild(clearButton)
 
