@@ -68,6 +68,7 @@ object Main {
       .on("touchmove", { evt: dom.TouchEvent =>
         val touch = evt.touches(0)
         moveEvent(touch.clientX, touch.clientY)
+        evt.preventDefault()
       })
       .on("touchend", { evt: dom.TouchEvent =>
         releaseEvent()
