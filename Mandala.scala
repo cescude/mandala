@@ -49,14 +49,10 @@ case class Machine[St, Sig](
 @JSExportTopLevel("mandala")
 object Mandala {
 
-  case class Settings(width: Int, height: Int, color: String, sides: Int) {
-    val ANGLE_DELTA = 2 * Math.PI / sides
-    val COUNT_LIST = Range(0, sides)
-  }
+  case class Settings(width: Int, height: Int, color: String, sides: Int)
 
   trait State { val settings: Settings }
-  case object Empty extends State { val settings = Settings(0, 0, "black", 3) }
-  case class Running(settings: Settings, inkLines: Seq[Line], colorLines: Seq[Line]) extends State
+  case class Paused(settings: Settings, inkLines: Seq[Line], colorLines: Seq[Line]) extends State
   case class Drawing(settings: Settings, line: Line, inkLines: Seq[Line], colorLines: Seq[Line]) extends State
 
   trait Signal
@@ -70,40 +66,49 @@ object Mandala {
   case object Clear                                    extends Signal
 
   case class Pt(x: Int, y: Int)
-  case class Line(size: Int, color: String, start: Pt, segments: Seq[Pt]) {
-    def draw: Unit = {
-      Fiddle.draw.beginPath()
+  case class Line(sides: Int, size: Int, color: String, start: Pt, segments: Seq[Pt]) {
+    def draw(): Unit = {
       Fiddle.draw.lineCap = "round"
       Fiddle.draw.lineJoin = "round"
       Fiddle.draw.strokeStyle = color
       Fiddle.draw.lineWidth = size
 
-      Fiddle.draw.moveTo(start.x, start.y)
-      segments.foreach(pt => Fiddle.draw.lineTo(pt.x, pt.y))
-      Fiddle.draw.stroke()
+      val ANGLE_DELTA = 2 * Math.PI / sides
+
+      Range(0, sides) foreach { _ =>
+        Fiddle.draw.rotate(ANGLE_DELTA)
+
+        Fiddle.draw.beginPath()
+
+        Fiddle.draw.moveTo(start.x, start.y)
+        segments.foreach(pt => Fiddle.draw.lineTo(pt.x, pt.y))
+
+        Fiddle.draw.stroke()
+      }
     }
   }
 
   def signaled: PartialFunction[(State, Signal), State] = {
-    case (Empty, Initialize(settings)) =>
-      Running(settings, Seq.empty, Seq.empty)
+    case (state, Initialize(settings)) =>
+      Paused(settings, Seq.empty, Seq.empty)
 
-    case (Running(settings, _, _), Clear) =>
-      Running(settings, Seq.empty, Seq.empty)
+    case (Paused(settings, _, _), Clear) =>
+      Paused(settings, Seq.empty, Seq.empty)
 
-    case (state: Running, Resize(width, height)) =>
+    case (state: Paused, Resize(width, height)) =>
       state.copy(settings = state.settings.copy(width = width, height = height))
 
-    case (Running(Settings(width, height, _, sides), inks, lines), ColorChange(color)) =>
-      Running(Settings(width, height, color, sides), inks, lines)
+    case (Paused(Settings(width, height, _, sides), inks, lines), ColorChange(color)) =>
+      Paused(Settings(width, height, color, sides), inks, lines)
 
-    case (Running(Settings(width, height, color, _), inks, lines), ShapeChange(sides)) =>
-      Running(Settings(width, height, color, sides), inks, lines)
+    case (Paused(Settings(width, height, color, _), inks, lines), ShapeChange(sides)) =>
+      Paused(Settings(width, height, color, sides), inks, lines)
 
-    case (Running(settings, inks, lines), MouseDown(touch, x, y)) =>
+    case (Paused(settings, inks, lines), MouseDown(touch, x, y)) =>
       Drawing(
         settings,
         Line(
+          settings.sides,
           (if (touch) 3 else 1) * (if (settings.color == "black") 5 else 15),
           settings.color,
           Pt(x-settings.width/2, y-settings.height/2),
@@ -122,19 +127,12 @@ object Mandala {
         lines)
       
     case (Drawing(settings, line, inks, lines), MouseUp) if settings.color == "black" =>
-      Running(settings, inks :+ line, lines)
+      Paused(settings, inks :+ line, lines)
 
     case (Drawing(settings, line, inks, lines), MouseUp) =>
-      Running(settings, inks, lines :+ line)
+      Paused(settings, inks, lines :+ line)
       
     case (state, _) => state
-  }
-  
-  def drawLines(settings: Settings, lines: Seq[Line]): Unit = {
-    settings.COUNT_LIST.foreach(_ => {
-      Fiddle.draw.rotate(settings.ANGLE_DELTA)
-      lines.foreach(_.draw)
-    })
   }
   
   def render(state: State): Unit = {
@@ -146,19 +144,19 @@ object Mandala {
     Fiddle.draw.translate(state.settings.width / 2, state.settings.height / 2)
 
     state match {
-      case Running(settings, inks, lines) =>
-        drawLines(settings, lines)
-        drawLines(settings, inks)
+      case Paused(settings, inks, lines) =>
+        lines.foreach(_.draw)
+        inks.foreach(_.draw)
 
       case Drawing(settings, line, inks, lines) if settings.color == "black" =>
-        drawLines(settings, lines)
-        drawLines(settings, inks)
-        drawLines(settings, Seq(line))
+        lines.foreach(_.draw)
+        inks.foreach(_.draw)
+        line.draw()
 
       case Drawing(settings, line, inks, lines) =>
-        drawLines(settings, lines)
-        drawLines(settings, Seq(line))
-        drawLines(settings, inks)
+        lines.foreach(_.draw)
+        line.draw()
+        inks.foreach(_.draw)
 
       case _ =>
     }
@@ -170,7 +168,10 @@ object Mandala {
   val machine = Machine
     .onSignal(signaled)
     .onRender(render _)
-    .init(Empty)
+    .init(Paused(
+      Settings(Fiddle.canvas.width, Fiddle.canvas.height, "black", 5),
+      Seq.empty,
+      Seq.empty))
 
   def updateCanvasInfo(canvas: dom.html.Canvas): Unit = {
     val width = canvas.clientWidth
