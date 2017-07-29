@@ -8,9 +8,11 @@ object Mandala {
 
   case class Settings(width: Int, height: Int, color: String, sides: Int)
 
-  trait State { val settings: Settings }
-  case class Paused(settings: Settings, inkLines: Seq[Line], colorLines: Seq[Line]) extends State
-  case class Drawing(settings: Settings, line: Line, inkLines: Seq[Line], colorLines: Seq[Line]) extends State
+  trait State
+  case class Paused(inkLines: Seq[Line], colorLines: Seq[Line]) extends State
+  case class Drawing(line: Line, inkLines: Seq[Line], colorLines: Seq[Line]) extends State
+
+  case class World(settings: Settings, state: State)
 
   trait Signal
   case class Initialize(settings: Settings)            extends Signal
@@ -25,48 +27,47 @@ object Mandala {
   case class Pt(x: Int, y: Int)
   case class Line(sides: Int, size: Int, color: String, segments: Seq[Pt])
 
-  def signaled: PartialFunction[(State, Signal), State] = {
-    case (state, Initialize(settings)) =>
-      Paused(settings, Seq.empty, Seq.empty)
+  def signaled: PartialFunction[(World, Signal), World] = {
+    case (_, Initialize(settings)) =>
+      World(settings, Paused(Seq.empty, Seq.empty))
 
-    case (Paused(settings, _, _), Clear) =>
-      Paused(settings, Seq.empty, Seq.empty)
+    case (World(settings, state), Clear) =>
+      World(settings, Paused(Seq.empty, Seq.empty))
 
-    case (state: Paused, Resize(width, height)) =>
-      state.copy(settings = state.settings.copy(width = width, height = height))
+    case (World(Settings(_, _, color, sides), state), Resize(width, height)) =>
+      World(Settings(width, height, color, sides), state)
 
-    case (Paused(Settings(width, height, _, sides), inks, lines), ColorChange(color)) =>
-      Paused(Settings(width, height, color, sides), inks, lines)
+    case (World(Settings(w, h, _, sides), state), ColorChange(color)) =>
+      World(Settings(w, h, color, sides), state)
 
-    case (Paused(Settings(width, height, color, _), inks, lines), ShapeChange(sides)) =>
-      Paused(Settings(width, height, color, sides), inks, lines)
+    case (World(Settings(w, h, c, _), state), ShapeChange(sides)) =>
+      World(Settings(w, h, c, sides), state)
 
-    case (Paused(settings, inks, lines), MouseDown(touch, x, y)) =>
-      Drawing(
+    case (World(settings, Paused(inks, lines)), MouseDown(touch, x, y)) =>
+      World(
         settings,
-        Line(
-          settings.sides,
-          (if (touch) 3 else 1) * (if (settings.color == "black") 5 else 15),
-          settings.color,
-          Seq(Pt(x-settings.width/2, y-settings.height/2))),
-        inks,
-        lines)
+        Drawing(
+          Line(
+            settings.sides,
+            (if (touch) 3 else 1) * (if (settings.color == "black") 5 else 15),
+            settings.color,
+            Seq(Pt(x-settings.width/2, y-settings.height/2))),
+          inks,
+          lines))
 
-    case (state: Drawing, Resize(width, height)) =>
-      state.copy(settings = state.settings.copy(width = width, height = height))
-
-    case (Drawing(settings, line, inks, lines), MouseMove(x, y)) =>
-      Drawing(
+    case (World(settings, Drawing(line, inks, lines)), MouseMove(x, y)) =>
+      World(
         settings,
-        line.copy(segments = line.segments :+ Pt(x - settings.width/2, y - settings.height/2)),
-        inks,
-        lines)
+        Drawing(
+          line.copy(segments = line.segments :+ Pt(x - settings.width/2, y - settings.height/2)),
+          inks,
+          lines))
       
-    case (Drawing(settings, line, inks, lines), MouseUp) if settings.color == "black" =>
-      Paused(settings, inks :+ line, lines)
+    case (World(settings, Drawing(line, inks, lines)), MouseUp) if settings.color == "black" =>
+      World(settings, Paused(inks :+ line, lines))
 
-    case (Drawing(settings, line, inks, lines), MouseUp) =>
-      Paused(settings, inks, lines :+ line)
+    case (World(settings, Drawing(line, inks, lines)), MouseUp) =>
+      World(settings, Paused(inks, lines :+ line))
       
     case (state, _) => state
   }
@@ -91,13 +92,16 @@ object Mandala {
     }
   }
 
-  def render(draw: dom.CanvasRenderingContext2D, state: State): Unit = {
+  def render(draw: dom.CanvasRenderingContext2D, world: World): Unit = {
+    val state = world.state
+    val settings = world.settings
+
     draw.beginPath()
-    draw.clearRect(0, 0, state.settings.width, state.settings.height)
+    draw.clearRect(0, 0, settings.width, settings.height)
     draw.fill()
 
     draw.save()
-    draw.translate(state.settings.width / 2, state.settings.height / 2)
+    draw.translate(settings.width / 2, settings.height / 2)
 
     draw.beginPath()
     draw.fillStyle = "lightgray"
@@ -105,16 +109,16 @@ object Mandala {
     draw.fill()
 
     state match {
-      case Paused(settings, inks, lines) =>
+      case Paused(inks, lines) =>
         lines.foreach(drawLine(draw, _))
         inks.foreach(drawLine(draw, _))
 
-      case Drawing(settings, line, inks, lines) if settings.color == "black" =>
+      case Drawing(line, inks, lines) if settings.color == "black" =>
         lines.foreach(drawLine(draw, _))
         inks.foreach(drawLine(draw, _))
         drawLine(draw, line)
 
-      case Drawing(settings, line, inks, lines) =>
+      case Drawing(line, inks, lines) =>
         lines.foreach(drawLine(draw, _))
         drawLine(draw, line)
         inks.foreach(drawLine(draw, _))
@@ -123,6 +127,5 @@ object Mandala {
     }
 
     draw.restore()
-
   }
 }

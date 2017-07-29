@@ -13,10 +13,7 @@ object Main {
     .onRender(render _)
     .init(
       Fiddle.draw.asInstanceOf[dom.CanvasRenderingContext2D],
-      Paused(
-        Settings(Fiddle.canvas.width, Fiddle.canvas.height, "black", 7),
-        Seq.empty,
-        Seq.empty))
+      World(Settings(0, 0, "black", 7), Paused(Seq.empty, Seq.empty)))
 
   def updateCanvasInfo(canvas: dom.html.Canvas): Unit = {
     val width = canvas.clientWidth
