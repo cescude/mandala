@@ -4,13 +4,13 @@ import rx.async.Platform._
 import scala.concurrent.duration._
 
 object Machine {
-  def onSignal[St, Sig](handler: PartialFunction[(St, Sig), St]) =
-    Machine1[St,Sig]((st,sig) => handler((st,sig)))
+  def onSignal[Sig, St](handler: PartialFunction[(Sig, St), St]) =
+    Machine1[St,Sig]((sig,st) => handler((sig,st)))
 
-  def onSignal[St, Sig](handler: (St, Sig) => St) =
+  def onSignal[Sig, St](handler: (Sig, St) => St) =
     Machine1[St,Sig](handler)
 
-  case class Machine1[St, Sig](onSignal: (St, Sig) => St) {
+  case class Machine1[St, Sig](onSignal: (Sig, St) => St) {
     def onRender[Env](handler: PartialFunction[(Env, St), _]) =
       Machine2[St,Sig,Env](onSignal, (env: Env, st: St) => handler((env,st)))
 
@@ -18,7 +18,7 @@ object Machine {
       Machine2[St,Sig,Env](onSignal, handler)
   }
 
-  case class Machine2[St, Sig, Env](onSignal: (St, Sig) => St, onRender: (Env, St) => _) {
+  case class Machine2[St, Sig, Env](onSignal: (Sig, St) => St, onRender: (Env, St) => _) {
     def init(env: Env, initialState: St)(implicit ctx: Ctx.Owner) =
       Machine(env, initialState, onSignal, onRender)(ctx)
   }
@@ -27,7 +27,7 @@ object Machine {
 case class Machine[St, Sig, Env](
   env: Env,
   init: St,
-  onSignal: (St, Sig) => St,
+  onSignal: (Sig, St) => St,
   onRender: (Env, St) => _)(implicit val ctx: Ctx.Owner) {
 
   val state: Var[St] = Var(init)
@@ -36,6 +36,6 @@ case class Machine[St, Sig, Env](
   }
   
   def send(signal: Sig): Unit = {
-    state() = onSignal(state.now, signal)
+    state() = onSignal(signal, state.now)
   }
 }

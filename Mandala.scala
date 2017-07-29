@@ -27,23 +27,23 @@ object Mandala {
   case class Pt(x: Int, y: Int)
   case class Line(sides: Int, size: Int, color: String, segments: Seq[Pt])
 
-  def signaled: PartialFunction[(World, Signal), World] = {
-    case (_, Initialize(settings)) =>
+  def signaled: PartialFunction[(Signal, World), World] = {
+    case (Initialize(settings), _) =>
       World(settings, Paused(Seq.empty, Seq.empty))
 
-    case (World(settings, state), Clear) =>
+    case (Clear, World(settings, state)) =>
       World(settings, Paused(Seq.empty, Seq.empty))
 
-    case (World(Settings(_, _, color, sides), state), Resize(width, height)) =>
+    case (Resize(width, height), World(Settings(_, _, color, sides), state)) =>
       World(Settings(width, height, color, sides), state)
 
-    case (World(Settings(w, h, _, sides), state), ColorChange(color)) =>
+    case (ColorChange(color), World(Settings(w, h, _, sides), state)) =>
       World(Settings(w, h, color, sides), state)
 
-    case (World(Settings(w, h, c, _), state), ShapeChange(sides)) =>
+    case (ShapeChange(sides), World(Settings(w, h, c, _), state)) =>
       World(Settings(w, h, c, sides), state)
 
-    case (World(settings, Paused(inks, lines)), MouseDown(touch, x, y)) =>
+    case (MouseDown(touch, x, y), World(settings, Paused(inks, lines))) =>
       World(
         settings,
         Drawing(
@@ -55,7 +55,7 @@ object Mandala {
           inks,
           lines))
 
-    case (World(settings, Drawing(line, inks, lines)), MouseMove(x, y)) =>
+    case (MouseMove(x, y), World(settings, Drawing(line, inks, lines))) =>
       World(
         settings,
         Drawing(
@@ -63,13 +63,11 @@ object Mandala {
           inks,
           lines))
       
-    case (World(settings, Drawing(line, inks, lines)), MouseUp) if settings.color == "black" =>
+    case (MouseUp, World(settings, Drawing(line, inks, lines))) if settings.color == "black" =>
       World(settings, Paused(inks :+ line, lines))
 
-    case (World(settings, Drawing(line, inks, lines)), MouseUp) =>
+    case (MouseUp, World(settings, Drawing(line, inks, lines))) =>
       World(settings, Paused(inks, lines :+ line))
-      
-    case (state, _) => state
   }
   
   def drawLine(draw: dom.CanvasRenderingContext2D, line: Line): Unit = {
