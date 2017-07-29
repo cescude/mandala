@@ -5,7 +5,6 @@ import scala.scalajs.js.annotation._
 // Defines the states, signals, and logic behind the mandala machine
 
 object Mandala {
-
   case class Settings(width: Int, height: Int, color: String, sides: Int)
 
   trait State
@@ -26,6 +25,10 @@ object Mandala {
 
   case class Pt(x: Int, y: Int)
   case class Line(sides: Int, size: Int, color: String, segments: Seq[Pt])
+}
+
+case class Mandala(draw: dom.CanvasRenderingContext2D) {
+  import Mandala._
 
   def signaled: PartialFunction[(Signal, World), World] = {
     case (Initialize(settings), _) =>
@@ -70,7 +73,7 @@ object Mandala {
       World(settings, Paused(inks, lines :+ line))
   }
   
-  def drawLine(draw: dom.CanvasRenderingContext2D, line: Line): Unit = {
+  def drawLine(line: Line): Unit = {
     draw.lineCap = "round"
     draw.lineJoin = "round"
     draw.strokeStyle = line.color
@@ -90,7 +93,7 @@ object Mandala {
     }
   }
 
-  def render(draw: dom.CanvasRenderingContext2D, world: World): Unit = {
+  def render(world: World): Unit = {
     val state = world.state
     val settings = world.settings
 
@@ -108,18 +111,18 @@ object Mandala {
 
     state match {
       case Paused(inks, lines) =>
-        lines.foreach(drawLine(draw, _))
-        inks.foreach(drawLine(draw, _))
+        lines.foreach(drawLine(_))
+        inks.foreach(drawLine(_))
 
       case Drawing(line, inks, lines) if settings.color == "black" =>
-        lines.foreach(drawLine(draw, _))
-        inks.foreach(drawLine(draw, _))
-        drawLine(draw, line)
+        lines.foreach(drawLine(_))
+        inks.foreach(drawLine(_))
+        drawLine(line)
 
       case Drawing(line, inks, lines) =>
-        lines.foreach(drawLine(draw, _))
-        drawLine(draw, line)
-        inks.foreach(drawLine(draw, _))
+        lines.foreach(drawLine(_))
+        drawLine(line)
+        inks.foreach(drawLine(_))
 
       case _ =>
     }

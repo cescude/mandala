@@ -8,12 +8,12 @@ import Mandala._
 
 @JSExportTopLevel("mandala")
 object Main {
+  val logic = Mandala(Fiddle.draw.asInstanceOf[dom.CanvasRenderingContext2D])
+
   val machine = Machine
-    .onSignal(signaled)
-    .onRender(render _)
-    .init(
-      Fiddle.draw.asInstanceOf[dom.CanvasRenderingContext2D],
-      World(Settings(0, 0, "black", 7), Paused(Seq.empty, Seq.empty)))
+    .onSignal(logic.signaled)
+    .onRender(logic.render(_))
+    .init(World(Settings(0, 0, "black", 7), Paused(Seq.empty, Seq.empty)))
 
   def updateCanvasInfo(canvas: dom.html.Canvas): Unit = {
     val width = canvas.clientWidth
