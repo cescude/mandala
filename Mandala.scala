@@ -5,7 +5,14 @@ import scala.scalajs.js.annotation._
 // Defines the states, signals, and logic behind the mandala machine
 
 object Mandala {
-  case class Settings(width: Int, height: Int, color: String, sides: Int)
+  case class Settings(width: Int = 0, height: Int = 0, color: Color = Ink, sides: Int = 7, tick: Int = 0)
+  sealed trait Color { def css(tick: Int): String }
+  case object Ink extends Color {
+    def css(tick: Int) = "black"
+  }
+  case class Phase(offset: Int) extends Color {
+    def css(tick: Int) = s"hsl(${(tick + offset * 90) % 360}, 100%, 50%)"
+  }
 
   trait State
   case class Paused(inkLines: Seq[Line], colorLines: Seq[Line]) extends State
@@ -18,13 +25,14 @@ object Mandala {
   case class MouseDown(touch: Boolean, x: Int, y: Int) extends Signal
   case class MouseMove(x: Int, y: Int)                 extends Signal
   case object MouseUp                                  extends Signal
-  case class ColorChange(color: String)                extends Signal
+  case class ColorChange(color: Color)                 extends Signal
   case class ShapeChange(shape: Int)                   extends Signal
   case class Resize(width: Int, height: Int)           extends Signal
   case object Clear                                    extends Signal
+  case object Tick                                     extends Signal
 
   case class Pt(x: Int, y: Int)
-  case class Line(sides: Int, size: Int, color: String, segments: Seq[Pt])
+  case class Line(sides: Int, size: Int, color: Color, segments: Seq[Pt])
 }
 
 case class Mandala(draw: dom.CanvasRenderingContext2D) {
@@ -37,14 +45,17 @@ case class Mandala(draw: dom.CanvasRenderingContext2D) {
     case (Clear, World(settings, state)) =>
       World(settings, Paused(Seq.empty, Seq.empty))
 
-    case (Resize(width, height), World(Settings(_, _, color, sides), state)) =>
-      World(Settings(width, height, color, sides), state)
+    case (Tick, World(settings, state)) =>
+      World(settings.copy(tick = settings.tick+1), state)
 
-    case (ColorChange(color), World(Settings(w, h, _, sides), state)) =>
-      World(Settings(w, h, color, sides), state)
+    case (Resize(w, h), World(settings, state)) =>
+      World(settings.copy(width = w, height = h), state)
 
-    case (ShapeChange(sides), World(Settings(w, h, c, _), state)) =>
-      World(Settings(w, h, c, sides), state)
+    case (ColorChange(c), World(settings, state)) =>
+      World(settings.copy(color = c), state)
+
+    case (ShapeChange(s), World(settings, state)) =>
+      World(settings.copy(sides = s), state)
 
     case (MouseDown(touch, x, y), World(settings, Paused(inks, lines))) =>
       World(
@@ -52,7 +63,7 @@ case class Mandala(draw: dom.CanvasRenderingContext2D) {
         Drawing(
           Line(
             settings.sides,
-            (if (touch) 3 else 1) * (if (settings.color == "black") 5 else 15),
+            (if (touch) 3 else 1) * (if (settings.color == Ink) 5 else 15),
             settings.color,
             Seq(Pt(x-settings.width/2, y-settings.height/2))),
           inks,
@@ -66,18 +77,22 @@ case class Mandala(draw: dom.CanvasRenderingContext2D) {
           inks,
           lines))
       
-    case (MouseUp, World(settings, Drawing(line, inks, lines))) if settings.color == "black" =>
+    case (MouseUp, World(settings, Drawing(line, inks, lines))) if settings.color == Ink =>
       World(settings, Paused(inks :+ line, lines))
 
     case (MouseUp, World(settings, Drawing(line, inks, lines))) =>
       World(settings, Paused(inks, lines :+ line))
+
+    case (_, world) => world
   }
   
-  def drawLine(line: Line): Unit = {
+  def drawLine(tick: Int, line: Line): Unit = {
     draw.lineCap = "round"
     draw.lineJoin = "round"
-    draw.strokeStyle = line.color
+    draw.strokeStyle = line.color.css(tick)
     draw.lineWidth = line.size
+
+    println(s"drawLine ${line.color} => ${line.color.css(tick)} => $tick")
 
     val ANGLE_DELTA = 2 * Math.PI / line.sides
 
@@ -111,18 +126,18 @@ case class Mandala(draw: dom.CanvasRenderingContext2D) {
 
     state match {
       case Paused(inks, lines) =>
-        lines.foreach(drawLine(_))
-        inks.foreach(drawLine(_))
+        lines.foreach(drawLine(settings.tick, _))
+        inks.foreach(drawLine(settings.tick, _))
 
       case Drawing(line, inks, lines) if settings.color == "black" =>
-        lines.foreach(drawLine(_))
-        inks.foreach(drawLine(_))
-        drawLine(line)
+        lines.foreach(drawLine(settings.tick, _))
+        inks.foreach(drawLine(settings.tick, _))
+        drawLine(settings.tick, line)
 
       case Drawing(line, inks, lines) =>
-        lines.foreach(drawLine(_))
-        drawLine(line)
-        inks.foreach(drawLine(_))
+        lines.foreach(drawLine(settings.tick, _))
+        drawLine(settings.tick, line)
+        inks.foreach(drawLine(settings.tick, _))
 
       case _ =>
     }

@@ -13,7 +13,7 @@ object Main {
   val machine = Machine
     .onSignal(logic.signaled)
     .onRender(logic.render(_))
-    .init(World(Settings(0, 0, "black", 7), Paused(Seq.empty, Seq.empty)))
+    .init(World(Settings(), Paused(Seq.empty, Seq.empty)))
 
   def updateCanvasInfo(canvas: dom.html.Canvas): Unit = {
     val width = canvas.clientWidth
@@ -102,17 +102,33 @@ object Main {
 
     shapeSelect.value = "7"
 
-    val black = Seq("black")
-    val hsls = Range(0, 360, 360/16).map(hue => s"hsl($hue, 100%, 50%)").take(14)
+    val blackBtn = button(backgroundColor := "black", height := 64, width := 64).render
+    blackBtn.on("click", { evt : dom.Event => machine.send(ColorChange(Ink)) })
+    controls.appendChild(blackBtn)
 
-    (black ++ hsls)
-      .map({ colorName =>
-        val btn = button(i(cls := "fa fa-square fa-2x", color := colorName)).render
-        btn.on("click", { evt : dom.Event => machine.send(ColorChange(colorName)) })
+    val phaseButtons = Range(0, 3)
+      .map({ phase =>
+        val btn = button().render
+        btn.on("click", { evt: dom.Event => machine.send(ColorChange(Phase(phase))) })
+        controls.appendChild(btn)
         btn
       })
-      .foreach(controls.appendChild(_))
 
-    machine.send(Initialize(Settings(Fiddle.canvas.width, Fiddle.canvas.height, "black", 7)))
+    machine.send(Initialize(Settings(Fiddle.canvas.width, Fiddle.canvas.height)))
+
+    // Something tells me this hack means the controls should be getting set by
+    // the machine itself...
+    var tick = 0
+    dom.window.setInterval({ () =>
+      tick += 1
+      phaseButtons.zipWithIndex.foreach {
+        case (btn, phase) =>
+          val c = Phase(phase).css(tick)
+          println(s"onInterval ${Phase(phase)} => $c => $tick")
+          btn.style = s"height: 64px; width: 64px; background-color: $c"
+      }
+          
+      machine.send(Tick)
+    }, 1000)
   }
 }
